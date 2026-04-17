@@ -1,0 +1,6 @@
+#!/bin/bash
+CONF_DIR="/config/.config/openbox"
+mkdir -p "$CONF_DIR"
+cp /defaults/autostart "$CONF_DIR/autostart"
+cp /defaults/menu.xml "$CONF_DIR/menu.xml"
+chown abc:abc "$CONF_DIR" "$CONF_DIR/autostart" "$CONF_DIR/menu.xml"

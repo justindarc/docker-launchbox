@@ -1,0 +1,598 @@
+diff --git a/dlls/comdlg32/itemdlg.c b/dlls/comdlg32/itemdlg.c
+index c12ae22e1c7..081c7ed8f41 100644
+--- a/dlls/comdlg32/itemdlg.c
++++ b/dlls/comdlg32/itemdlg.c
+@@ -3536,6 +3536,25 @@ static HRESULT WINAPI IExplorerBrowserEvents_fnOnNavigationComplete(IExplorerBro
+         This->psi_folder = NULL;
+     }
+ 
++    /* When picking folders, navigating to a folder via the left-hand navigation
++     * tree selects that folder as the current result.  The right-pane shell view
++     * fires CDBOSC_SELCHANGE which triggers fill_filename_from_selection, but
++     * that only covers items explicitly selected inside the view.  Navigation
++     * driven by the nav-tree (NSTCEvents_fnOnSelectionChanged -> BrowseToObject)
++     * never produces a CDBOSC_SELCHANGE for the destination folder itself, so
++     * the filename textbox is never updated.  Fix this by updating the textbox
++     * directly from the newly-navigated-to folder whenever FOS_PICKFOLDERS is
++     * active. */
++    if((This->options & FOS_PICKFOLDERS) && This->psi_folder)
++    {
++        LPWSTR path = NULL;
++        if(SUCCEEDED(IShellItem_GetDisplayName(This->psi_folder, SIGDN_FILESYSPATH, &path)))
++        {
++            set_file_name(This, path);
++            CoTaskMemFree(path);
++        }
++    }
++
+     events_OnFolderChange(This);
+ 
+     return S_OK;
+diff --git a/dlls/gdiplus/gdiplus.c b/dlls/gdiplus/gdiplus.c
+index 1dbb96349be..28fbe5766dc 100644
+--- a/dlls/gdiplus/gdiplus.c
++++ b/dlls/gdiplus/gdiplus.c
+@@ -321,6 +321,16 @@ GpStatus hresult_to_status(HRESULT res)
+         case E_INVALIDARG:
+             return InvalidParameter;
+         default:
++            /* Real Windows GDI+ returns OutOfMemory for most failure conditions,
++             * including file-not-found and other I/O errors. This is a well-known
++             * GDI+ quirk that .NET System.Drawing relies on: it translates the
++             * OutOfMemory GDI+ status into a catchable managed exception.
++             * Returning GenericError here instead causes .NET to throw a different
++             * exception type that may not be handled the same way by the CLR,
++             * leading to crashes in applications like ImageDupeGrouper that depend
++             * on this behaviour when image files cannot be opened. */
++            if (HRESULT_FACILITY(res) == FACILITY_WIN32)
++                return OutOfMemory;
+             return GenericError;
+     }
+ }
+diff --git a/dlls/kernelbase/debug.c b/dlls/kernelbase/debug.c
+index a600b6b59c9..5600c272db6 100644
+--- a/dlls/kernelbase/debug.c
++++ b/dlls/kernelbase/debug.c
+@@ -772,6 +772,17 @@ LONG WINAPI UnhandledExceptionFilter( EXCEPTION_POINTERS *epointers )
+             TerminateProcess( GetCurrentProcess(), 1 );
+         }
+ 
++        /* do not launch the debugger for unhandled CLR managed exceptions;
++         * on real Windows the CLR handles these internally via its own vectored
++         * exception handler and calls TerminateProcess directly, so winedbg is
++         * never involved. the CLR exception code 0xe0434352 spells "MCE\x04"
++         * and is raised whenever a managed exception propagates out of all
++         * managed frames without being caught. */
++        if (rec->ExceptionCode == 0xe0434352)
++        {
++            TerminateProcess( GetCurrentProcess(), rec->ExceptionCode );
++        }
++
+         nested = rec->ExceptionFlags & EXCEPTION_NESTED_CALL;
+         if (top_filter && !nested)
+         {
+diff --git a/dlls/kernelbase/sync.c b/dlls/kernelbase/sync.c
+index 94036acfad4..f626e068635 100644
+--- a/dlls/kernelbase/sync.c
++++ b/dlls/kernelbase/sync.c
+@@ -394,6 +394,10 @@ BOOL WINAPI DECLSPEC_HOTPATCH UnregisterWaitEx( HANDLE handle, HANDLE event )
+  */
+ DWORD WINAPI DECLSPEC_HOTPATCH WaitForSingleObject( HANDLE handle, DWORD timeout )
+ {
++    if (timeout >= 60000) {
++        return WaitForSingleObjectEx( handle, 0, FALSE );
++    }
++
+     return WaitForSingleObjectEx( handle, timeout, FALSE );
+ }
+ 
+diff --git a/dlls/uiautomationcore/uia_client.c b/dlls/uiautomationcore/uia_client.c
+index 6027e23249a..32571f05807 100644
+--- a/dlls/uiautomationcore/uia_client.c
++++ b/dlls/uiautomationcore/uia_client.c
+@@ -2763,6 +2763,22 @@ HRESULT WINAPI UiaNodeFromHandle(HWND hwnd, HUIANODE *huianode)
+ {
+     TRACE("(%p, %p)\n", hwnd, huianode);
+ 
++    /*
++     * When the HWND belongs to the calling thread, return E_NOTIMPL
++     * immediately.  On Wine, the full UIA node creation path for same-
++     * thread HWNDs triggers a chain of COM cross-apartment calls that
++     * deadlock in CoWaitForMultipleHandles (Wine's LRPC dispatch does
++     * not properly handle re-entrant calls to an STA during CoWait).
++     * Returning E_NOTIMPL causes the managed UIAutomationClient to
++     * propagate the failure gracefully — WPF catches it and continues
++     * without accessibility for this element.
++     */
++    if (GetWindowThreadProcessId(hwnd, NULL) == GetCurrentThreadId())
++    {
++        if (huianode) *huianode = NULL;
++        return E_NOTIMPL;
++    }
++
+     return create_uia_node_from_hwnd(hwnd, huianode, 0);
+ }
+ 
+diff --git a/dlls/windows.storage.applicationdata/Makefile.in b/dlls/windows.storage.applicationdata/Makefile.in
+index f712fef4ae9..5f4e4ccb9bc 100644
+--- a/dlls/windows.storage.applicationdata/Makefile.in
++++ b/dlls/windows.storage.applicationdata/Makefile.in
+@@ -1,5 +1,5 @@
+ MODULE  = windows.storage.applicationdata.dll
+-IMPORTS = combase
++IMPORTS = combase kernelbase
+ 
+ SOURCES = \
+ 	applicationdata.c \
+diff --git a/dlls/windows.storage.applicationdata/applicationdata.c b/dlls/windows.storage.applicationdata/applicationdata.c
+index dbe42b3a8d6..418ca3fe8d6 100644
+--- a/dlls/windows.storage.applicationdata/applicationdata.c
++++ b/dlls/windows.storage.applicationdata/applicationdata.c
+@@ -115,6 +115,349 @@ static const struct IActivationFactoryVtbl factory_vtbl =
+     factory_ActivateInstance,
+ };
+ 
++/* ── IStorageFolder / IStorageItem backed by a real filesystem path ── */
++
++struct storage_folder
++{
++    IStorageFolder IStorageFolder_iface;
++    IStorageItem   IStorageItem_iface;
++    LONG ref;
++    WCHAR path[MAX_PATH];
++};
++
++static inline struct storage_folder *impl_from_IStorageFolder( IStorageFolder *iface )
++{
++    return CONTAINING_RECORD( iface, struct storage_folder, IStorageFolder_iface );
++}
++
++static inline struct storage_folder *impl_from_IStorageItem( IStorageItem *iface )
++{
++    return CONTAINING_RECORD( iface, struct storage_folder, IStorageItem_iface );
++}
++
++static HRESULT WINAPI storage_folder_QueryInterface( IStorageFolder *iface, REFIID iid, void **out )
++{
++    struct storage_folder *impl = impl_from_IStorageFolder( iface );
++
++    TRACE( "iface %p, iid %s, out %p.\n", iface, debugstr_guid( iid ), out );
++
++    if (IsEqualGUID( iid, &IID_IUnknown ) ||
++        IsEqualGUID( iid, &IID_IInspectable ) ||
++        IsEqualGUID( iid, &IID_IAgileObject ) ||
++        IsEqualGUID( iid, &IID_IStorageFolder ))
++    {
++        *out = &impl->IStorageFolder_iface;
++        IInspectable_AddRef( *out );
++        return S_OK;
++    }
++
++    if (IsEqualGUID( iid, &IID_IStorageItem ))
++    {
++        *out = &impl->IStorageItem_iface;
++        IInspectable_AddRef( *out );
++        return S_OK;
++    }
++
++    FIXME( "%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid( iid ) );
++    *out = NULL;
++    return E_NOINTERFACE;
++}
++
++static ULONG WINAPI storage_folder_AddRef( IStorageFolder *iface )
++{
++    struct storage_folder *impl = impl_from_IStorageFolder( iface );
++    ULONG ref = InterlockedIncrement( &impl->ref );
++    TRACE( "iface %p increasing refcount to %lu.\n", iface, ref );
++    return ref;
++}
++
++static ULONG WINAPI storage_folder_Release( IStorageFolder *iface )
++{
++    struct storage_folder *impl = impl_from_IStorageFolder( iface );
++    ULONG ref = InterlockedDecrement( &impl->ref );
++    TRACE( "iface %p decreasing refcount to %lu.\n", iface, ref );
++    if (!ref) free( impl );
++    return ref;
++}
++
++static HRESULT WINAPI storage_folder_GetIids( IStorageFolder *iface, ULONG *iid_count, IID **iids )
++{
++    FIXME( "iface %p stub!\n", iface );
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI storage_folder_GetRuntimeClassName( IStorageFolder *iface, HSTRING *class_name )
++{
++    FIXME( "iface %p stub!\n", iface );
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI storage_folder_GetTrustLevel( IStorageFolder *iface, TrustLevel *trust_level )
++{
++    FIXME( "iface %p stub!\n", iface );
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI storage_folder_CreateFileAsyncOverloadDefaultOptions( IStorageFolder *iface, HSTRING name,
++                                                                            IAsyncOperation_StorageFile **operation )
++{
++    FIXME( "iface %p stub!\n", iface );
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI storage_folder_CreateFileAsync( IStorageFolder *iface, HSTRING name,
++                                                      CreationCollisionOption options,
++                                                      IAsyncOperation_StorageFile **operation )
++{
++    FIXME( "iface %p stub!\n", iface );
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI storage_folder_CreateFolderAsyncOverloadDefaultOptions( IStorageFolder *iface, HSTRING name,
++                                                                              IAsyncOperation_StorageFolder **operation )
++{
++    FIXME( "iface %p stub!\n", iface );
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI storage_folder_CreateFolderAsync( IStorageFolder *iface, HSTRING name,
++                                                        CreationCollisionOption options,
++                                                        IAsyncOperation_StorageFolder **operation )
++{
++    FIXME( "iface %p stub!\n", iface );
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI storage_folder_GetFileAsync( IStorageFolder *iface, HSTRING name,
++                                                   IAsyncOperation_StorageFile **operation )
++{
++    FIXME( "iface %p stub!\n", iface );
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI storage_folder_GetFolderAsync( IStorageFolder *iface, HSTRING name,
++                                                     IAsyncOperation_StorageFolder **operation )
++{
++    FIXME( "iface %p stub!\n", iface );
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI storage_folder_GetItemAsync( IStorageFolder *iface, HSTRING name,
++                                                   IAsyncOperation_IStorageItem **operation )
++{
++    FIXME( "iface %p stub!\n", iface );
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI storage_folder_GetFilesAsyncOverloadDefaultOptionsStartAndCount( IStorageFolder *iface,
++                                                                                       IAsyncOperation_IVectorView_StorageFile **operation )
++{
++    FIXME( "iface %p stub!\n", iface );
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI storage_folder_GetFoldersAsyncOverloadDefaultOptionsStartAndCount( IStorageFolder *iface,
++                                                                                         IAsyncOperation_IVectorView_StorageFolder **operation )
++{
++    FIXME( "iface %p stub!\n", iface );
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI storage_folder_GetItemsAsyncOverloadDefaultStartAndCount( IStorageFolder *iface,
++                                                                                IAsyncOperation_IVectorView_IStorageItem **operation )
++{
++    FIXME( "iface %p stub!\n", iface );
++    return E_NOTIMPL;
++}
++
++static const struct IStorageFolderVtbl storage_folder_vtbl =
++{
++    storage_folder_QueryInterface,
++    storage_folder_AddRef,
++    storage_folder_Release,
++    storage_folder_GetIids,
++    storage_folder_GetRuntimeClassName,
++    storage_folder_GetTrustLevel,
++    storage_folder_CreateFileAsyncOverloadDefaultOptions,
++    storage_folder_CreateFileAsync,
++    storage_folder_CreateFolderAsyncOverloadDefaultOptions,
++    storage_folder_CreateFolderAsync,
++    storage_folder_GetFileAsync,
++    storage_folder_GetFolderAsync,
++    storage_folder_GetItemAsync,
++    storage_folder_GetFilesAsyncOverloadDefaultOptionsStartAndCount,
++    storage_folder_GetFoldersAsyncOverloadDefaultOptionsStartAndCount,
++    storage_folder_GetItemsAsyncOverloadDefaultStartAndCount,
++};
++
++/* IStorageItem methods for storage_folder */
++
++static HRESULT WINAPI storage_item_QueryInterface( IStorageItem *iface, REFIID iid, void **out )
++{
++    struct storage_folder *impl = impl_from_IStorageItem( iface );
++    return storage_folder_QueryInterface( &impl->IStorageFolder_iface, iid, out );
++}
++
++static ULONG WINAPI storage_item_AddRef( IStorageItem *iface )
++{
++    struct storage_folder *impl = impl_from_IStorageItem( iface );
++    return storage_folder_AddRef( &impl->IStorageFolder_iface );
++}
++
++static ULONG WINAPI storage_item_Release( IStorageItem *iface )
++{
++    struct storage_folder *impl = impl_from_IStorageItem( iface );
++    return storage_folder_Release( &impl->IStorageFolder_iface );
++}
++
++static HRESULT WINAPI storage_item_GetIids( IStorageItem *iface, ULONG *iid_count, IID **iids )
++{
++    FIXME( "iface %p stub!\n", iface );
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI storage_item_GetRuntimeClassName( IStorageItem *iface, HSTRING *class_name )
++{
++    FIXME( "iface %p stub!\n", iface );
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI storage_item_GetTrustLevel( IStorageItem *iface, TrustLevel *trust_level )
++{
++    FIXME( "iface %p stub!\n", iface );
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI storage_item_RenameAsyncOverloadDefaultOptions( IStorageItem *iface, HSTRING name,
++                                                                      IAsyncAction **operation )
++{
++    FIXME( "iface %p stub!\n", iface );
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI storage_item_RenameAsync( IStorageItem *iface, HSTRING name,
++                                                NameCollisionOption option, IAsyncAction **operation )
++{
++    FIXME( "iface %p stub!\n", iface );
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI storage_item_DeleteAsyncOverloadDefaultOptions( IStorageItem *iface,
++                                                                      IAsyncAction **operation )
++{
++    FIXME( "iface %p stub!\n", iface );
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI storage_item_DeleteAsync( IStorageItem *iface, StorageDeleteOption option,
++                                                IAsyncAction **operation )
++{
++    FIXME( "iface %p stub!\n", iface );
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI storage_item_GetBasicPropertiesAsync( IStorageItem *iface,
++                                                            IAsyncOperation_BasicProperties **operation )
++{
++    FIXME( "iface %p stub!\n", iface );
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI storage_item_get_Name( IStorageItem *iface, HSTRING *value )
++{
++    struct storage_folder *impl = impl_from_IStorageItem( iface );
++    const WCHAR *name;
++
++    TRACE( "iface %p, value %p\n", iface, value );
++
++    name = wcsrchr( impl->path, '\\' );
++    name = name ? name + 1 : impl->path;
++    return WindowsCreateString( name, wcslen( name ), value );
++}
++
++static HRESULT WINAPI storage_item_get_Path( IStorageItem *iface, HSTRING *value )
++{
++    struct storage_folder *impl = impl_from_IStorageItem( iface );
++
++    TRACE( "iface %p, value %p — path %s\n", iface, value, debugstr_w( impl->path ) );
++
++    return WindowsCreateString( impl->path, wcslen( impl->path ), value );
++}
++
++static HRESULT WINAPI storage_item_get_Attributes( IStorageItem *iface, FileAttributes *value )
++{
++    FIXME( "iface %p stub!\n", iface );
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI storage_item_get_DateCreated( IStorageItem *iface, DateTime *value )
++{
++    FIXME( "iface %p stub!\n", iface );
++    return E_NOTIMPL;
++}
++
++static HRESULT WINAPI storage_item_IsOfType( IStorageItem *iface, StorageItemTypes type, boolean *value )
++{
++    FIXME( "iface %p stub!\n", iface );
++    return E_NOTIMPL;
++}
++
++static const struct IStorageItemVtbl storage_item_vtbl =
++{
++    storage_item_QueryInterface,
++    storage_item_AddRef,
++    storage_item_Release,
++    storage_item_GetIids,
++    storage_item_GetRuntimeClassName,
++    storage_item_GetTrustLevel,
++    storage_item_RenameAsyncOverloadDefaultOptions,
++    storage_item_RenameAsync,
++    storage_item_DeleteAsyncOverloadDefaultOptions,
++    storage_item_DeleteAsync,
++    storage_item_GetBasicPropertiesAsync,
++    storage_item_get_Name,
++    storage_item_get_Path,
++    storage_item_get_Attributes,
++    storage_item_get_DateCreated,
++    storage_item_IsOfType,
++};
++
++static HRESULT create_local_folder( const WCHAR *path, IStorageFolder **out )
++{
++    struct storage_folder *impl;
++
++    if (!out) return E_INVALIDARG;
++    if (!(impl = calloc( 1, sizeof(*impl) ))) return E_OUTOFMEMORY;
++
++    impl->IStorageFolder_iface.lpVtbl = &storage_folder_vtbl;
++    impl->IStorageItem_iface.lpVtbl   = &storage_item_vtbl;
++    impl->ref = 1;
++    lstrcpynW( impl->path, path, MAX_PATH );
++
++    /* Ensure the directory exists (create intermediate dirs manually) */
++    {
++        WCHAR tmp[MAX_PATH];
++        WCHAR *p;
++        lstrcpyW( tmp, path );
++        for (p = tmp + 1; *p; p++)
++        {
++            if (*p == '\\')
++            {
++                *p = 0;
++                CreateDirectoryW( tmp, NULL );
++                *p = '\\';
++            }
++        }
++        CreateDirectoryW( tmp, NULL );
++    }
++
++    *out = &impl->IStorageFolder_iface;
++    TRACE( "created IStorageFolder %p for path %s.\n", *out, debugstr_w( path ) );
++    return S_OK;
++}
++
++/* ── IApplicationData ── */
++
+ struct application_data
+ {
+     IApplicationData IApplicationData_iface;
+@@ -221,22 +564,111 @@ static HRESULT WINAPI application_data_get_RoamingSettings( IApplicationData *if
+     return E_NOTIMPL;
+ }
+ 
++/* Get the running executable's basename without extension, e.g. "MyApp"
++ * from "C:\path\to\MyApp.exe".  This is used as the per-application
++ * container name under %LOCALAPPDATA%\Packages\ so that different apps get
++ * isolated storage, mirroring what Windows does for packaged apps. */
++static BOOL get_app_name( WCHAR *buf, DWORD buflen )
++{
++    WCHAR exe[MAX_PATH];
++    const WCHAR *base, *dot;
++    SIZE_T name_len;
++
++    if (!GetModuleFileNameW( NULL, exe, MAX_PATH )) return FALSE;
++
++    /* Find the basename: last backslash component */
++    base = wcsrchr( exe, '\\' );
++    base = base ? base + 1 : exe;
++
++    /* Strip the extension if present */
++    dot = wcsrchr( base, '.' );
++    name_len = dot ? (SIZE_T)(dot - base) : wcslen( base );
++
++    if (name_len == 0 || name_len >= buflen) return FALSE;
++
++    memcpy( buf, base, name_len * sizeof(WCHAR) );
++    buf[name_len] = 0;
++    return TRUE;
++}
++
+ static HRESULT WINAPI application_data_get_LocalFolder( IApplicationData *iface, IStorageFolder **value )
+ {
+-    FIXME( "iface %p, value %p stub!\n", iface, value );
+-    return E_NOTIMPL;
++    WCHAR path[MAX_PATH], app[MAX_PATH];
++    DWORD len;
++
++    TRACE( "iface %p, value %p\n", iface, value );
++
++    if (!value) return E_INVALIDARG;
++
++    /* Use %LOCALAPPDATA%\Packages\<ExeName> as the local folder.
++     * On a real packaged Windows app this would be the per-package
++     * container; for identity-less Win32 apps running under Wine we
++     * derive the container name from the executable basename so that
++     * different apps get isolated storage. */
++    len = GetEnvironmentVariableW( L"LOCALAPPDATA", path, MAX_PATH );
++    if (!len || len >= MAX_PATH) return E_UNEXPECTED;
++
++    if (!get_app_name( app, MAX_PATH )) return E_UNEXPECTED;
++
++    if (wcslen( path ) + 1 + wcslen( L"Packages\\" ) + wcslen( app ) >= MAX_PATH)
++        return E_UNEXPECTED;
++
++    wcscat( path, L"\\Packages\\" );
++    wcscat( path, app );
++
++    return create_local_folder( path, value );
+ }
+ 
+ static HRESULT WINAPI application_data_get_RoamingFolder( IApplicationData *iface, IStorageFolder **value )
+ {
+-    FIXME( "iface %p, value %p stub!\n", iface, value );
+-    return E_NOTIMPL;
++    WCHAR path[MAX_PATH], app[MAX_PATH];
++    DWORD len;
++
++    TRACE( "iface %p, value %p\n", iface, value );
++
++    if (!value) return E_INVALIDARG;
++
++    /* Use %APPDATA%\Packages\<ExeName> as the roaming folder. */
++    len = GetEnvironmentVariableW( L"APPDATA", path, MAX_PATH );
++    if (!len || len >= MAX_PATH) return E_UNEXPECTED;
++
++    if (!get_app_name( app, MAX_PATH )) return E_UNEXPECTED;
++
++    if (wcslen( path ) + 1 + wcslen( L"Packages\\" ) + wcslen( app ) >= MAX_PATH)
++        return E_UNEXPECTED;
++
++    wcscat( path, L"\\Packages\\" );
++    wcscat( path, app );
++
++    return create_local_folder( path, value );
+ }
+ 
+ static HRESULT WINAPI application_data_get_TemporaryFolder( IApplicationData *iface, IStorageFolder **value )
+ {
+-    FIXME( "iface %p, value %p stub!\n", iface, value );
+-    return E_NOTIMPL;
++    WCHAR path[MAX_PATH], app[MAX_PATH];
++    DWORD len;
++
++    TRACE( "iface %p, value %p\n", iface, value );
++
++    if (!value) return E_INVALIDARG;
++
++    len = GetEnvironmentVariableW( L"TEMP", path, MAX_PATH );
++    if (!len || len >= MAX_PATH)
++    {
++        len = GetEnvironmentVariableW( L"TMP", path, MAX_PATH );
++        if (!len || len >= MAX_PATH) return E_UNEXPECTED;
++    }
++
++    if (!get_app_name( app, MAX_PATH )) return E_UNEXPECTED;
++
++    if (wcslen( path ) + 1 + wcslen( L"Packages\\" ) + wcslen( app ) + wcslen( L"\\Temp" ) >= MAX_PATH)
++        return E_UNEXPECTED;
++
++    wcscat( path, L"\\Packages\\" );
++    wcscat( path, app );
++    wcscat( path, L"\\Temp" );
++
++    return create_local_folder( path, value );
+ }
+ 
+ static HRESULT WINAPI application_data_add_DataChanged( IApplicationData *iface, ITypedEventHandler_ApplicationData_IInspectable *handler,

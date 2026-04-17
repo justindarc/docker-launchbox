@@ -1,0 +1,6 @@
+#!/usr/bin/with-contenv bash
+FIFO="/tmp/output-log.pipe"
+rm -f "$FIFO"
+mkfifo "$FIFO"
+chown abc:abc "$FIFO"
+exec cat <> "$FIFO"

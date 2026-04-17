@@ -1,0 +1,43 @@
+<?xml version="1.0" ?>
+<Container version="2">
+  <Name>launchbox</Name>
+  <Repository>docker-launchbox</Repository>
+  <Network>bridge</Network>
+  <WebUI>http://[IP]:3000/</WebUI>
+  <Config
+    Name="WebUI Port"
+    Target="3000"
+    Default="3000"
+    Mode="tcp"
+    Type="Port"
+    Required="true"
+  />
+  <Config
+    Name="Config Folder"
+    Target="/config"
+    Default="/mnt/user/appdata/launchbox/config"
+    Mode="rw"
+    Type="Path"
+  />
+  <Config
+    Name="Games Folder"
+    Target="/games"
+    Default="/mnt/user/appdata/launchbox/games"
+    Mode="rw"
+    Type="Path"
+  />
+  <Config
+    Name="Installer Folder"
+    Target="/installer"
+    Default="/mnt/user/appdata/launchbox/installer"
+    Mode="rw"
+    Type="Path"
+  />
+  <Config
+    Name="LaunchBox Folder"
+    Target="/launchbox"
+    Default="/mnt/user/appdata/launchbox/launchbox"
+    Mode="rw"
+    Type="Path"
+  />
+</Container>

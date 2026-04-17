@@ -1,0 +1,48 @@
+#!/bin/bash
+
+# Redirect all stdout and stderr to named pipe (forwarded to Docker log by svc-output-log)
+exec >> /tmp/output-log.pipe 2>&1
+
+if [ ! -d "$WINEPREFIX/drive_c" ]; then
+    echo "Initializing Wine prefix..."
+
+    WINEDLLOVERRIDES="mscoree=d" wineboot --init
+
+    winetricks -q win7
+    winetricks -q corefonts
+    winetricks -q vcrun2019
+    winetricks -q d3dcompiler_47
+    winetricks -q dxvk
+    winetricks -q dotnet48
+    winetricks -q mf
+    winetricks -q win10
+    winetricks -q windowmanagerdecorated=n
+    winetricks -q windowmanagermanaged=y
+
+    wine reg add "HKCU\\Software\\Wine\\Direct3D" /v "renderer" /t REG_SZ /d "gl" /f
+    wine reg add "HKCU\\Software\\Wine\\Direct3D" /v "VideoMemorySize" /t REG_SZ /d "2048" /f
+
+    # Uncomment to use patched Wine builtin version of uiautomationcore.dll
+    # wine reg add "HKCU\\Software\\Wine\\DllOverrides" /v "uiautomationcore" /t REG_SZ /d "builtin" /f
+
+    mkdir -p $WINEPREFIX/dosdevices
+    ln -s /games $WINEPREFIX/dosdevices/r:
+fi
+
+if [ ! -f "/launchbox/LaunchBox.exe" ] && ls /installer/LaunchBox-*-Setup.exe 1> /dev/null 2>&1; then
+    INSTALLER=$(ls /installer/LaunchBox-*-Setup.exe | head -n 1)
+
+    echo "Installing LaunchBox..."
+
+    wine "$INSTALLER" /DIR=Z:\\launchbox /SILENT
+else
+    if [ "$BIGBOX" = "true" ] && [ -f "/launchbox/BigBox.exe" ]; then
+        APP="/launchbox/BigBox.exe"
+    else
+        APP="/launchbox/LaunchBox.exe"
+    fi
+
+    wine "$APP"
+fi
+
+wineserver -w
