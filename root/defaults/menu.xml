@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <openbox_menu xmlns="http://openbox.org/3.4/menu">
   <menu id="root-menu" label="MENU">
-    <item label="LaunchBox" icon="/usr/share/pixmaps/LaunchBox-color_48x48.png">
+    <item label="Restart LaunchBox" icon="/usr/share/pixmaps/LaunchBox-color_48x48.png">
       <action name="Execute">
-        <command>bash -c 'exec >> /tmp/output-log.pipe 2>&amp;1; wine /launchbox/LaunchBox.exe; wineserver -w'</command>
+        <command>/config/.config/openbox/autostart</command>
       </action>
     </item>
     <item label="xterm" icon="/usr/share/pixmaps/xterm-color_48x48.xpm">
