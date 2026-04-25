@@ -25,7 +25,6 @@ On your host machine create:
 ~/docker-launchbox/
  ├── config/
  ├── games/
- ├── installer/
  ├── launchbox/
 ```
 
@@ -40,14 +39,10 @@ docker build -t justindarc/launchbox .
 ```
 docker run -d \
   --name launchbox \
-  -e PUID=1000 \
-  -e PGID=1000 \
-  -e TZ=Etc/UTC \
   -p 3000:3000 \
   -p 3001:3001 \
   -v ./config:/config \
   -v ./games:/games \
-  -v ./installer:/installer \
   -v ./launchbox:/launchbox \
   --shm-size="1gb" \
   --restart unless-stopped \
@@ -82,14 +77,14 @@ On first launch the container will:
 
 1. Initialize a new Wine prefix if it does not yet exist in `./config/wine`
 2. Create a symbolic link to map the `R:` drive in the Wine prefix to the `./games` folder
-3. Install LaunchBox (if the installer is present in `./installer`) if an existing LaunchBox installation cannot be found in `./launchbox`
+3. Install LaunchBox (if the installer is present in `./launchbox` and an existing LaunchBox installation cannot be found in `./launchbox`)
 4. Run LaunchBox
 
 First boot may take 5–10 minutes.
 
 ## Installing a new LaunchBox installation
 
-Place installer file such as `LaunchBox-13.26-Setup.exe` into `./installer`.
+Place installer file such as `LaunchBox-13.26-Setup.exe` into `./launchbox`.
 
 After restarting the container, the installer will automatically run and install LaunchBox to `./launchbox`.
 
