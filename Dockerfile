@@ -49,6 +49,7 @@ RUN dpkg --add-architecture i386 \
   && apt install -y --install-recommends \
     cabextract \
     fonts-wine \
+    mono-complete \
     winbind \
     winehq-staging \
     winetricks \

@@ -32,7 +32,7 @@ On your host machine create:
 ## Building the image
 
 ```
-docker build -t launchbox .
+docker build -t justindarc/launchbox .
 ```
 
 ## Starting the container
@@ -40,42 +40,30 @@ docker build -t launchbox .
 ```
 docker run -d \
   --name launchbox \
+  -e PUID=1000 \
+  -e PGID=1000 \
+  -e TZ=Etc/UTC \
   -p 3000:3000 \
+  -p 3001:3001 \
   -v ./config:/config \
   -v ./games:/games \
   -v ./installer:/installer \
   -v ./launchbox:/launchbox \
+  --shm-size="1gb" \
   --restart unless-stopped \
-  launchbox
+  justindarc/launchbox
 ```
 
 ## Stopping the container
 
 ```
-docker stop launchbox
+docker stop justindarc/launchbox
 ```
 
 ## Removing the container
 
 ```
-docker rm launchbox
-```
-
-## Rebuilding and recreating the container
-
-```
-docker stop launchbox
-docker rm launchbox
-docker build -t launchbox .
-docker run -d \
-  --name launchbox \
-  -p 3000:3000 \
-  -v ./config:/config \
-  -v ./games:/games \
-  -v ./installer:/installer \
-  -v ./launchbox:/launchbox \
-  --restart unless-stopped \
-  launchbox
+docker rm justindarc/launchbox
 ```
 
 ## Access LaunchBox

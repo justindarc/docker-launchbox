@@ -14,14 +14,17 @@ if [ ! -d "$WINEPREFIX/drive_c" ]; then
   (
     echo "10"; echo "# Updating settings"; winetricks -q win7
     echo "20"; echo "# Installing corefonts"; winetricks -q corefonts
-    echo "30"; echo "# Installing Visual C++ 2019 Runtime"; winetricks -q vcrun2019
-    echo "40"; echo "# Configuring DirectX"; winetricks -q d3dcompiler_47
-    echo "50"; echo "# Installing DXVK"; winetricks -q dxvk
-    echo "60"; echo "# Installing .NET Framework 4.8"; winetricks -q dotnet48
-    echo "70"; echo "# Installing Media Foundation"; winetricks -q mf
-    echo "80"; echo "# Updating settings"; winetricks -q win10
-    echo "85"; echo "# Updating settings"; winetricks -q windowmanagerdecorated=y
-    echo "90"; echo "# Updating settings"; winetricks -q windowmanagermanaged=y
+    echo "30"; echo "# Downloading wine-mono"; wget -P "$WINEPREFIX" https://dl.winehq.org/wine/wine-mono/11.1.0/wine-mono-11.1.0-x86.msi
+    echo "35"; echo "# Installing wine-mono"; wine msiexec /i "${WINEPREFIX}/wine-mono-11.1.0-x86.msi" /qn
+    echo "40"; echo "# Cleaning up wine-mono"; rm -rf "${WINEPREFIX}/wine-mono-11.1.0-x86.msi"
+    echo "50"; echo "# Installing .NET Framework 4.8"; winetricks -q dotnet48
+    echo "60"; echo "# Installing Visual C++ 2019 Runtime"; winetricks -q vcrun2019
+    echo "70"; echo "# Configuring DirectX"; WINEDLLOVERRIDES="mscoree=d" winetricks -q d3dcompiler_47
+    echo "80"; echo "# Installing DXVK"; winetricks -q dxvk
+    echo "90"; echo "# Installing Media Foundation"; winetricks -q mf
+    echo "97"; echo "# Updating settings"; winetricks -q win10
+    echo "98"; echo "# Updating settings"; winetricks -q windowmanagerdecorated=y
+    echo "99"; echo "# Updating settings"; winetricks -q windowmanagermanaged=y
     echo "100"; echo "# Done!"
   ) | zenity --progress \
     --title="Initializing Wine" \
