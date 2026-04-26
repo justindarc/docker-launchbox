@@ -1,0 +1,73 @@
+#!/bin/bash
+
+# Redirect all stdout and stderr to named pipe (forwarded to Docker log by svc-output-log)
+exec >> /tmp/output-log.pipe 2>&1
+
+# Set X background color to match Wine Explorer shell
+# xsetroot -solid "#247093"
+
+if [ ! -d "$WINEPREFIX/drive_c" ]; then
+  echo "Initializing Wine prefix..."
+
+  WINEDLLOVERRIDES="mscoree=d" wineboot --init
+
+  (
+    echo "0"; echo "# Downloading wine-mono"; wget -P /tmp https://dl.winehq.org/wine/wine-mono/11.1.0/wine-mono-11.1.0-x86.msi
+    echo "10"; echo "# Installing wine-mono"; wine msiexec /i /tmp/wine-mono-11.1.0-x86.msi /qn
+    echo "20"; echo "# Cleaning up wine-mono"; rm -rf /tmp/wine-mono-11.1.0-x86.msi
+    echo "30"; echo "# Installing corefonts"; winetricks -q corefonts
+    echo "40"; echo "# Installing Visual C++ 2019 Runtime"; winetricks -q vcrun2019
+    echo "50"; echo "# Configuring DirectX"; winetricks -q d3dcompiler_47
+    echo "60"; echo "# Installing DXVK"; winetricks -q dxvk
+    echo "70"; echo "# Installing .NET Framework 4.8"; winetricks -q dotnet48
+    echo "80"; echo "# Installing Media Foundation"; winetricks -q mf
+    echo "95"; echo "# Updating settings"; winetricks -q windowmanagerdecorated=n
+    echo "90"; echo "# Updating settings"; winetricks -q win10
+    echo "100"; echo "# Done!"
+  ) | zenity --progress \
+    --title="Initializing Wine" \
+    --text="Please wait..." \
+    --percentage=0 \
+    --no-cancel \
+    --auto-close
+
+  # Uncomment to use patched Wine builtin version of uiautomationcore.dll
+  # wine reg add "HKCU\\Software\\Wine\\DllOverrides" /v "uiautomationcore" /t REG_SZ /d "builtin" /f
+
+  mkdir -p $WINEPREFIX/dosdevices
+  ln -s /games $WINEPREFIX/dosdevices/r:
+fi
+
+WINE_CMD="wine"
+
+# Set screen resolution and DPI for virtual desktop to match Selkies config
+# WINE_CMD="wine explorer /desktop=shell,${SELKIES_MANUAL_WIDTH}x${SELKIES_MANUAL_HEIGHT}"
+# winetricks -q vd=${SELKIES_MANUAL_WIDTH}x${SELKIES_MANUAL_HEIGHT}
+# wine reg add "HKCU\\Control Panel\\Desktop" /v "LogPixels" /t REG_DWORD /d $(printf '0x%02x' $SELKIES_SCALING_DPI) /f
+
+# Add Start Menu shortcuts
+cp /defaults/Programs/Explorer.lnk /config/wine/drive_c/ProgramData/Microsoft/Windows/Start\ Menu/Programs/Explorer.lnk
+
+# Remove Start Menu shortcuts
+rm -rf /config/wine/drive_c/users/abc/AppData/Roaming/Microsoft/Windows/Start\ Menu/Programs/LaunchBox
+rm -rf /config/wine/drive_c/ProgramData/Microsoft/Windows/Start\ Menu/Programs/K-Lite\ Codec\ Pack
+
+if [ ! -f "/launchbox/LaunchBox.exe" ] && ls /launchbox/LaunchBox-*-Setup.exe 1> /dev/null 2>&1; then
+  INSTALLER=$(ls /launchbox/LaunchBox-*-Setup.exe | head -n 1)
+
+  echo "Installing LaunchBox..."
+
+  $WINE_CMD "$INSTALLER" /DIR=Z:\\launchbox /SILENT
+
+  # Remove Start Menu shortcuts
+  rm -rf /config/wine/drive_c/users/abc/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/LaunchBox
+  rm -rf /config/wine/drive_c/ProgramData/Microsoft/Windows/Start Menu/Programs/K-Lite Codec Pack
+else
+  APP="/launchbox/LaunchBox.exe"
+
+  echo "Starting LaunchBox..."
+
+  $WINE_CMD "$APP"
+fi
+
+wineserver -w

@@ -44,9 +44,9 @@ docker run -d \
   -v ./config:/config \
   -v ./games:/games \
   -v ./launchbox:/launchbox \
-  --shm-size="1gb" \
+  --shm-size="2gb" \
   --restart unless-stopped \
-  justindarc/launchbox
+  justindarc/launchbox:latest
 ```
 
 ## Stopping the container
