@@ -6,6 +6,11 @@
         <command>/defaults/launchbox</command>
       </action>
     </item>
+    <item label="Explorer" icon="/usr/share/pixmaps/Explorer-color_48x48.png">
+      <action name="Execute">
+        <command>/usr/bin/wine explorer</command>
+      </action>
+    </item>
     <item label="Terminal" icon="/usr/share/pixmaps/xterm-color_48x48.xpm">
       <action name="Execute">
         <command>/usr/bin/xterm</command>
