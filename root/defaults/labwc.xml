@@ -57,6 +57,7 @@
     </windowRule>
     <windowRule identifier="lxqt-panel" serverDecoration="no" />
     <windowRule identifier="zenity" serverDecoration="no" />
+    <windowRule identifier="LaunchBox*" serverDecoration="no" />
     <windowRule identifier="*.exe" serverDecoration="no" />
   </windowRules>
 

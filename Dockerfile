@@ -26,24 +26,13 @@ ENV SELKIES_UI_SIDEBAR_SHOW_SHARING=false
 
 # Wine environment variables
 ENV WINEPREFIX=/config/wine
-ENV WINEESYNC=1
 ENV WINEFSYNC=1
-ENV WINENTSYNC=1
-ENV MAP_DRIVE_G=/games
 
 # Install Wine and tools
 RUN dpkg --add-architecture i386 \
-  && apt-get update \
-  && apt-get install -y --install-recommends \
-    curl \
-    gdb \
-    libvulkan1 \
-    lsof \
-    mesa-vulkan-drivers \
-    strace \
-    unzip \
+  && apt update \
+  && apt install -y --install-recommends \
     wget \
-    zenity \
   && mkdir -p /etc/apt/keyrings \
   && wget -O - https://dl.winehq.org/wine-builds/winehq.key | gpg --dearmor -o /etc/apt/keyrings/winehq-archive.key \
   && wget -NP /etc/apt/sources.list.d/ https://dl.winehq.org/wine-builds/ubuntu/dists/noble/winehq-noble.sources \
@@ -51,10 +40,11 @@ RUN dpkg --add-architecture i386 \
   && apt install -y --install-recommends \
     cabextract \
     fonts-wine \
-    mono-complete \
+    wget \
     winbind \
     winehq-staging \
     winetricks \
+    zenity \
   && apt-get autoclean \
   && rm -rf /var/lib/apt/lists/*
 
@@ -69,5 +59,4 @@ EXPOSE 3000
 EXPOSE 3001
 
 VOLUME /config
-VOLUME /games
 VOLUME /launchbox

@@ -48,6 +48,8 @@ if [ ! -d "$WINEPREFIX/drive_c" ]; then
 fi
 
 WINE_CMD="wine"
+WINE_APP="/launchbox/LaunchBox/LaunchBox.exe"
+INSTALLER_APP=$(ls /launchbox/LaunchBox-*-Setup.exe 2>/dev/null | head -n 1)
 
 # Set screen resolution and DPI for virtual desktop to match Selkies config
 # WINE_CMD="wine explorer /desktop=shell,${SELKIES_MANUAL_WIDTH}x${SELKIES_MANUAL_HEIGHT}"
@@ -61,22 +63,24 @@ cp /defaults/Programs/Explorer.lnk /config/wine/drive_c/ProgramData/Microsoft/Wi
 rm -rf /config/wine/drive_c/users/abc/AppData/Roaming/Microsoft/Windows/Start\ Menu/Programs/LaunchBox
 rm -rf /config/wine/drive_c/ProgramData/Microsoft/Windows/Start\ Menu/Programs/K-Lite\ Codec\ Pack
 
-if [ ! -f "/launchbox/LaunchBox.exe" ] && ls /launchbox/LaunchBox-*-Setup.exe 1> /dev/null 2>&1; then
-  INSTALLER=$(ls /launchbox/LaunchBox-*-Setup.exe | head -n 1)
+if [ -f $WINE_APP ]; then
+  echo "Starting LaunchBox..."
 
+  $WINE_CMD "$WINE_APP"
+elif [ -f "$INSTALLER_APP" ]; then
   echo "Installing LaunchBox..."
 
-  $WINE_CMD "$INSTALLER" /DIR=Z:\\launchbox /SILENT
+  $WINE_CMD "$INSTALLER_APP" /DIR=Z:\\launchbox\\LaunchBox /SILENT
 
   # Remove Start Menu shortcuts
   rm -rf /config/wine/drive_c/users/abc/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/LaunchBox
   rm -rf /config/wine/drive_c/ProgramData/Microsoft/Windows/Start Menu/Programs/K-Lite Codec Pack
 else
-  APP="/launchbox/LaunchBox.exe"
+  echo "Could not find LaunchBox or a LaunchBox installer (LaunchBox-*-Setup.exe) in /launchbox."
 
-  echo "Starting LaunchBox..."
-
-  $WINE_CMD "$APP"
+  zenity --error \
+    --title="Error" \
+    --text="Could not find LaunchBox or a LaunchBox installer (LaunchBox-*-Setup.exe) in /launchbox.\n\nPlease mount a volume containing either an existing LaunchBox installation or a LaunchBox installer to /launchbox and restart the container."
 fi
 
 wineserver -w
