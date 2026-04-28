@@ -29,6 +29,7 @@ ENV WINEPREFIX=/config/wine
 ENV WINEESYNC=1
 ENV WINEFSYNC=1
 ENV WINENTSYNC=1
+ENV MAP_DRIVE_G=/games
 
 # Install Wine and tools
 RUN dpkg --add-architecture i386 \

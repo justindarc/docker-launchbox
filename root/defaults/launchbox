@@ -34,8 +34,17 @@ if [ ! -d "$WINEPREFIX/drive_c" ]; then
   # Uncomment to use patched Wine builtin version of uiautomationcore.dll
   # wine reg add "HKCU\\Software\\Wine\\DllOverrides" /v "uiautomationcore" /t REG_SZ /d "builtin" /f
 
-  mkdir -p $WINEPREFIX/dosdevices
-  ln -s /games $WINEPREFIX/dosdevices/r:
+  # Map MAP_DRIVE_* environment variables to Wine drive letters
+  mkdir -p "$WINEPREFIX/dosdevices"
+  env | grep '^MAP_DRIVE_' | while IFS='=' read -r var value; do
+    letter=$(echo "$var" | sed 's/MAP_DRIVE_//' | tr '[:upper:]' '[:lower:]')
+    if [ -n "$value" ] && [ -d "$value" ]; then
+      ln -sfn "$value" "$WINEPREFIX/dosdevices/${letter}:"
+      echo "Mapped $value -> ${letter^^}:"
+    else
+      echo "Warning: $var=$value is not a valid directory, skipping drive ${letter^^}:"
+    fi
+  done
 fi
 
 WINE_CMD="wine"

@@ -15,7 +15,9 @@ Run LaunchBox via Wine inside Docker using Selkies
 - x86_64 CPU
 
 Tested with:
-- Ubuntu 22.04
+- Ubuntu 24.04 LTS
+- Ubuntu 26.04 LTS
+- Unraid 7.2.4
 
 ## Folder structure
 
@@ -24,9 +26,23 @@ On your host machine create:
 ```
 ~/docker-launchbox/
  ├── config/
- ├── games/
  ├── launchbox/
 ```
+
+## Drive mapping
+
+Docker volumes can be mapped to Wine drive letters using `MAP_DRIVE_*` environment variables. The variable name determines the drive letter — for example, `MAP_DRIVE_G` maps to `G:`, `MAP_DRIVE_R` maps to `R:`, and so on:
+
+```
+docker run -d \
+  -e MAP_DRIVE_G=/games \
+  -v ./games:/games \
+  -e MAP_DRIVE_R=/roms \
+  -v ./roms:/roms \
+  ...
+```
+
+Each `MAP_DRIVE_*` variable must point to a valid directory inside the container. If the path does not exist, the mapping is skipped and a warning is logged.
 
 ## Building the image
 
@@ -42,8 +58,9 @@ docker run -d \
   -p 3000:3000 \
   -p 3001:3001 \
   -v ./config:/config \
-  -v ./games:/games \
   -v ./launchbox:/launchbox \
+  -e MAP_DRIVE_G=/games \
+  -v ./games:/games \
   --shm-size="2gb" \
   --restart unless-stopped \
   justindarc/launchbox:latest
@@ -76,11 +93,11 @@ You will see LaunchBox running via Wine.
 On first launch the container will:
 
 1. Initialize a new Wine prefix if it does not yet exist in `./config/wine`
-2. Create a symbolic link to map the `R:` drive in the Wine prefix to the `./games` folder
-3. Install LaunchBox (if the installer is present in `./launchbox` and an existing LaunchBox installation cannot be found in `./launchbox`)
-4. Run LaunchBox
+2. Map any `MAP_DRIVE_*` environment variables to Wine drive letters
+3. Install LaunchBox if an existing installation is not found and the installer is present in `./launchbox`
+4. Run LaunchBox from `./launchbox`
 
-First boot may take 5–10 minutes.
+*First boot may take 15 minutes or longer to initialize the Wine prefix and/or install LaunchBox.*
 
 ## Installing a new LaunchBox installation
 
@@ -98,7 +115,7 @@ After restarting the container, LaunchBox will automatically start.
 
 ### Blank screen
 
-Wait up to 2–3 minutes on first run.
+Right-click to open the context menu and attempt to re-open LaunchBox
 
 ### Installer not running
 
