@@ -26,7 +26,6 @@ ENV SELKIES_UI_SIDEBAR_SHOW_SHARING=false
 
 # Wine environment variables
 ENV WINEPREFIX=/config/wine
-ENV WINEFSYNC=1
 
 # Install Wine and tools
 RUN dpkg --add-architecture i386 \

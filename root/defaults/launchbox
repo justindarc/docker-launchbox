@@ -1,13 +1,15 @@
 #!/bin/bash
 
 # Redirect all stdout and stderr to named pipe (forwarded to Docker log by svc-output-log)
-exec >> /tmp/output-log.pipe 2>&1
+if [ -n "$REDIRECT_WINE_LOG" ]; then
+  exec >> /tmp/output-log.pipe 2>&1
+fi
 
 # Set X background color to match Wine Explorer shell
 # xsetroot -solid "#247093"
 
 if [ ! -d "$WINEPREFIX/drive_c" ]; then
-  echo "Initializing Wine prefix..."
+  echo "Initializing Wine prefix..." >> /tmp/output-log.pipe
 
   WINEDLLOVERRIDES="mscoree=d" wineboot --init
 
@@ -40,9 +42,9 @@ if [ ! -d "$WINEPREFIX/drive_c" ]; then
     letter=$(echo "$var" | sed 's/MAP_DRIVE_//' | tr '[:upper:]' '[:lower:]')
     if [ -n "$value" ] && [ -d "$value" ]; then
       ln -sfn "$value" "$WINEPREFIX/dosdevices/${letter}:"
-      echo "Mapped $value -> ${letter^^}:"
+      echo "Mapped $value -> ${letter^^}:" >> /tmp/output-log.pipe
     else
-      echo "Warning: $var=$value is not a valid directory, skipping drive ${letter^^}:"
+      echo "Warning: $var=$value is not a valid directory, skipping drive ${letter^^}:" >> /tmp/output-log.pipe
     fi
   done
 fi
@@ -64,11 +66,11 @@ rm -rf /config/wine/drive_c/users/abc/AppData/Roaming/Microsoft/Windows/Start\ M
 rm -rf /config/wine/drive_c/ProgramData/Microsoft/Windows/Start\ Menu/Programs/K-Lite\ Codec\ Pack
 
 if [ -f $WINE_APP ]; then
-  echo "Starting LaunchBox..."
+  echo "Starting LaunchBox..." >> /tmp/output-log.pipe
 
   $WINE_CMD "$WINE_APP"
 elif [ -f "$INSTALLER_APP" ]; then
-  echo "Installing LaunchBox..."
+  echo "Installing LaunchBox..." >> /tmp/output-log.pipe
 
   $WINE_CMD "$INSTALLER_APP" /DIR=Z:\\launchbox\\LaunchBox /SILENT
 
@@ -76,7 +78,7 @@ elif [ -f "$INSTALLER_APP" ]; then
   rm -rf /config/wine/drive_c/users/abc/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/LaunchBox
   rm -rf /config/wine/drive_c/ProgramData/Microsoft/Windows/Start Menu/Programs/K-Lite Codec Pack
 else
-  echo "Could not find LaunchBox or a LaunchBox installer (LaunchBox-*-Setup.exe) in /launchbox."
+  echo "Could not find LaunchBox or a LaunchBox installer (LaunchBox-*-Setup.exe) in /launchbox." >> /tmp/output-log.pipe
 
   zenity --error \
     --title="Error" \
